@@ -1,7 +1,13 @@
-import { createContext, ReactNode, useContext, useState } from 'react';
-import { toast } from 'react-toastify';
-import { api } from '../services/api';
-import { Product, Stock } from '../types';
+import {
+  createContext,
+  ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+import { toast } from "react-toastify";
+import { api } from "../services/api";
+import { Product, Stock } from "../types";
 
 interface CartProviderProps {
   children: ReactNode;
@@ -19,32 +25,88 @@ interface CartContextData {
   updateProductAmount: ({ productId, amount }: UpdateProductAmount) => void;
 }
 
+type ProductResponse = Omit<Product, "amount">;
+
+type StockResponse = {
+  id: number;
+  amount: number;
+};
+
 const CartContext = createContext<CartContextData>({} as CartContextData);
 
 export function CartProvider({ children }: CartProviderProps): JSX.Element {
   const [cart, setCart] = useState<Product[]>(() => {
-    // const storagedCart = Buscar dados do localStorage
+    const storedCart = localStorage.getItem("@RocketShoes:cart");
 
-    // if (storagedCart) {
-    //   return JSON.parse(storagedCart);
-    // }
+    if (storedCart) return JSON.parse(storedCart);
 
     return [];
   });
 
+  // useEffect(() => {
+  //   localStorage.setItem("@RocketShoes:cart", JSON.stringify(cart));
+  // }, [cart]);
+
   const addProduct = async (productId: number) => {
     try {
-      // TODO
-    } catch {
-      // TODO
+      const stockResponse = await api.get<StockResponse>(`stock/${productId}`);
+
+      if (stockResponse.status !== 200)
+        throw new Error("Unexpected response status code");
+
+      const { amount } = stockResponse.data;
+
+      if (amount <= 0) {
+        toast.error("Quantidade solicitada fora de estoque");
+        return;
+      }
+
+      const existentProductInCart =
+        cart.filter((product) => product.id === productId)[0] ?? null;
+
+      if (existentProductInCart) {
+        await updateProductAmount({
+          productId,
+          amount: existentProductInCart.amount + 1,
+        });
+
+        return;
+      }
+
+      const productResponse = await api.get<ProductResponse>(
+        `products/${productId}`
+      );
+
+      if (productResponse.status !== 200)
+        throw new Error("Unexpected response status code");
+
+      const product = productResponse.data;
+
+      const newCartData = [...cart, { ...product, amount: 1 }];
+
+      setCart(newCartData);
+      localStorage.setItem("@RocketShoes:cart", JSON.stringify(newCartData));
+    } catch (error) {
+      toast.error("Erro na adição do produto");
     }
   };
 
   const removeProduct = (productId: number) => {
     try {
-      // TODO
+      const [productToRemove] = cart.filter(
+        (product) => product.id === productId
+      );
+
+      if (!productToRemove) throw new Error("Product not found");
+
+      const newCartData = cart.filter(
+        (product) => product.id !== productToRemove.id
+      );
+
+      setCart(newCartData);
+      localStorage.setItem("@RocketShoes:cart", JSON.stringify(newCartData));
     } catch {
-      // TODO
+      toast.error("Erro na remoção do produto");
     }
   };
 
@@ -53,9 +115,30 @@ export function CartProvider({ children }: CartProviderProps): JSX.Element {
     amount,
   }: UpdateProductAmount) => {
     try {
-      // TODO
-    } catch {
-      // TODO
+      if (amount < 1) return;
+
+      const stockResponse = await api.get<StockResponse>(`stock/${productId}`);
+
+      if (stockResponse.status !== 200)
+        throw new Error("Unexpected response status");
+
+      const { amount: stockAmount } = stockResponse.data;
+
+      if (amount > stockAmount) {
+        toast.error("Quantidade solicitada fora de estoque");
+        return;
+      }
+
+      setCart(
+        cart.map((product) => {
+          if (product.id == productId) product.amount = amount;
+
+          return product;
+        })
+      );
+      localStorage.setItem("@RocketShoes:cart", JSON.stringify(cart));
+    } catch (error) {
+      toast.error("Erro na alteração de quantidade do produto");
     }
   };
 
